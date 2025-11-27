@@ -27,7 +27,7 @@ EMBEDDING_MODEL = "text-embedding-3-large"
 MAX_EMBEDDING_TOKENS = 8000
 
 # ========== 토큰 관련 유틸리티 ==========
-def count_tokens(text, model=EMBEDDING_MODEL):
+def count_tokens(text, model="text-embedding-3-large"):
     """텍스트의 토큰 수 계산"""
     try:
         encoding = tiktoken.get_encoding("cl100k_base")
@@ -50,6 +50,50 @@ def truncate_text(text, max_tokens=8000):
         # 대략적인 자르기
         max_chars = max_tokens * 2
         return text[:max_chars]
+
+
+def split_text_by_tokens(text, max_tokens=8000, overlap_tokens=200):
+    """
+    토큰 제한에 맞게 텍스트를 여러 청크로 분할
+    - 오버랩을 적용하여 문맥 유지
+    """
+    try:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(text)
+        
+        # 토큰 수가 제한 이하면 그대로 반환
+        if len(tokens) <= max_tokens:
+            return [text]
+        
+        # 토큰 단위로 분할
+        chunks = []
+        start = 0
+        
+        while start < len(tokens):
+            end = min(start + max_tokens, len(tokens))
+            chunk_tokens = tokens[start:end]
+            chunk_text = encoding.decode(chunk_tokens)
+            chunks.append(chunk_text)
+            
+            # 다음 시작점 (오버랩 적용)
+            start = end - overlap_tokens if end < len(tokens) else end
+        
+        return chunks
+        
+    except Exception as e:
+        print(f"   ⚠️ 토큰 분할 실패: {e}")
+        # 대략적인 문자 기반 분할
+        max_chars = max_tokens * 2
+        overlap_chars = overlap_tokens * 2
+        chunks = []
+        start = 0
+        
+        while start < len(text):
+            end = min(start + max_chars, len(text))
+            chunks.append(text[start:end])
+            start = end - overlap_chars if end < len(text) else end
+        
+        return chunks
 
 
 def clean_text(text):
@@ -470,7 +514,7 @@ def classify_content(text, categories=CLASSIFICATION_CATEGORIES):
                     "content": f"""당신은 고객센터 문서를 분류하는 전문가입니다.
 주어진 텍스트를 다음 카테고리 중 가장 적합한 것으로 분류하세요.
 
-카테고리: {', '.join(categories)}
+카테고리: {categories}
 
 JSON 형식으로만 응답하세요: {{"classification": "카테고리명", "confidence": 0.0~1.0}}"""
                 },
@@ -539,7 +583,7 @@ def setup_chromadb(api_key):
 
 # ========== 14. 임베딩 및 저장 ==========
 def insert_chunks_to_chroma(chunks, collection):
-    """청크를 ChromaDB에 저장 (토큰 제한 및 정제 포함)"""
+    """청크를 ChromaDB에 저장 (토큰 초과 시 분할 저장)"""
     if not chunks:
         print("   ⚠️ 저장할 청크가 없습니다.")
         return
@@ -548,6 +592,7 @@ def insert_chunks_to_chroma(chunks, collection):
     metadatas = []
     ids = []
     skipped = 0
+    split_count = 0  # 분할된 청크 수
     
     for i, chunk in enumerate(chunks):
         keywords_str = ", ".join(chunk.get("keywords", []))
@@ -569,33 +614,83 @@ def insert_chunks_to_chroma(chunks, collection):
 {title}
 {content}"""
         
-        # 토큰 수 체크 및 자르기
+        # 토큰 수 체크
         token_count = count_tokens(doc_text)
+        
         if token_count > MAX_EMBEDDING_TOKENS:
-            print(f"   ⚠️ 청크 {i+1} 토큰 초과 ({token_count} > {MAX_EMBEDDING_TOKENS}), 자르기 적용")
-            doc_text = truncate_text(doc_text, MAX_EMBEDDING_TOKENS)
+            # 토큰 초과 시 분할
+            print(f"   📎 청크 {i+1} 토큰 초과 ({token_count} > {MAX_EMBEDDING_TOKENS}), 분할 진행")
+            
+            # 헤더 (분류, 키워드, 제목) 토큰 계산
+            header = f"""[분류: {classification}]
+[키워드: {keywords_str}]
+{title}
+"""
+            header_tokens = count_tokens(header)
+            
+            # 콘텐츠만 분할 (헤더 토큰 제외한 크기로)
+            content_max_tokens = MAX_EMBEDDING_TOKENS - header_tokens - 100  # 안전 마진
+            content_chunks = split_text_by_tokens(content, max_tokens=content_max_tokens, overlap_tokens=200)
+            
+            print(f"      → {len(content_chunks)}개로 분할됨")
+            split_count += len(content_chunks) - 1  # 원래 1개에서 추가된 수
+            
+            # 각 분할 청크 저장
+            for j, content_part in enumerate(content_chunks):
+                part_doc_text = f"""[분류: {classification}]
+[키워드: {keywords_str}]
+{title} (Part {j+1}/{len(content_chunks)})
+{content_part}"""
+                
+                # 최종 빈 체크
+                if not part_doc_text.strip():
+                    continue
+                
+                documents.append(part_doc_text)
+                
+                metadatas.append({
+                    "category": chunk["metadata"]["category"],
+                    "chapter": chunk.get("chapter") or "",
+                    "title": f"{title[:180]} (Part {j+1}/{len(content_chunks)})" if title else f"Part {j+1}/{len(content_chunks)}",
+                    "source": chunk["metadata"]["source"],
+                    "page_number": chunk["metadata"].get("page_number") or 0,
+                    "chunk_type": chunk["metadata"].get("chunk_type", "unknown"),
+                    "keywords": keywords_str[:500] if keywords_str else "",
+                    "classification": classification,
+                    "classification_confidence": chunk.get("classification_confidence", 0.0),
+                    "is_split": True,
+                    "split_part": j + 1,
+                    "split_total": len(content_chunks)
+                })
+                
+                ids.append(f"{chunk['metadata']['category']}_{i}_part{j}")
         
-        # 최종 빈 체크
-        if not doc_text.strip():
-            print(f"   ⚠️ 청크 {i+1} 스킵: 정제 후 빈 텍스트")
-            skipped += 1
-            continue
-        
-        documents.append(doc_text)
-        
-        metadatas.append({
-            "category": chunk["metadata"]["category"],
-            "chapter": chunk.get("chapter") or "",
-            "title": title[:200] if title else "",  # 메타데이터 길이 제한
-            "source": chunk["metadata"]["source"],
-            "page_number": chunk["metadata"].get("page_number") or 0,
-            "chunk_type": chunk["metadata"].get("chunk_type", "unknown"),
-            "keywords": keywords_str[:500] if keywords_str else "",  # 메타데이터 길이 제한
-            "classification": classification,
-            "classification_confidence": chunk.get("classification_confidence", 0.0)
-        })
-        
-        ids.append(f"{chunk['metadata']['category']}_{i}")
+        else:
+            # 토큰 제한 이내 - 그대로 저장
+            # 최종 빈 체크
+            if not doc_text.strip():
+                print(f"   ⚠️ 청크 {i+1} 스킵: 정제 후 빈 텍스트")
+                skipped += 1
+                continue
+            
+            documents.append(doc_text)
+            
+            metadatas.append({
+                "category": chunk["metadata"]["category"],
+                "chapter": chunk.get("chapter") or "",
+                "title": title[:200] if title else "",
+                "source": chunk["metadata"]["source"],
+                "page_number": chunk["metadata"].get("page_number") or 0,
+                "chunk_type": chunk["metadata"].get("chunk_type", "unknown"),
+                "keywords": keywords_str[:500] if keywords_str else "",
+                "classification": classification,
+                "classification_confidence": chunk.get("classification_confidence", 0.0),
+                "is_split": False,
+                "split_part": 0,
+                "split_total": 1
+            })
+            
+            ids.append(f"{chunk['metadata']['category']}_{i}")
     
     if not documents:
         print("   ⚠️ 유효한 문서가 없습니다.")
@@ -624,7 +719,8 @@ def insert_chunks_to_chroma(chunks, collection):
                 except Exception as e2:
                     print(f"      ❌ 개별 청크 {j} 저장 실패: {e2}")
     
-    print(f"   ✅ {len(documents)}개 청크 임베딩 및 저장 완료 (스킵: {skipped}개)")
+    print(f"   ✅ {len(documents)}개 청크 임베딩 및 저장 완료")
+    print(f"      (원본: {len(chunks)}개, 분할 추가: {split_count}개, 스킵: {skipped}개)")
 
 
 # ========== 15. 메인 실행 ==========
