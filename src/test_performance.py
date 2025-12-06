@@ -17,7 +17,7 @@ client = OpenAI(api_key=api_key)
 # ChromaDB 임베딩 함수
 openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=api_key,
-    model_name="text-embedding-3-small"
+    model_name="text-embedding-3-large"
 )
 
 # ChromaDB 클라이언트 & 컬렉션 연결
@@ -79,8 +79,7 @@ def rag_query(query, n_results=3):
     # 2. 검색된 문서 출력
     print(f"\n📄 검색된 문서 ({len(retrieved_docs)}개):")
     for i, doc in enumerate(retrieved_docs, 1):
-        print(f"\n[{i}] {doc[:200]}...")  # 앞 200자만 출력
-    
+        print(f"\n[{i}] {doc}")
     # 3. 답변 생성
     answer = generate_answer(query, retrieved_docs)
     
