@@ -22,11 +22,11 @@ from bs4 import BeautifulSoup
 
 # 환경설정
 load_dotenv()
-JSON_DIRECTORY = os.getenv("JSON_DIR", os.getenv("DIR"))
+JSON_DIRECTORY = os.getenv("DIR_SIMPLE")
 OPENAI_API_KEY = os.getenv("API_KEY")
 CLASSIFICATION_CATEGORIES = os.getenv("CATEGORIES")
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH")
-COLLECTION_NAME = os.getenv("JSON_COLLECTION_NAME", os.getenv("COLLECTION_NAME", "json_embeddings"))
+CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH_SIMPLE")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 
 # 청킹 설정
 MAX_CHUNK_SIZE = 1500

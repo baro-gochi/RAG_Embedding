@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 # 환경설정
 load_dotenv()
 OPENAI_API_KEY = os.getenv("API_KEY")
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "aicc_documents")
+CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH_SIMPLE")
+COLLECTION_NAME = os.getenv("aicc_documents")
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 # OpenAI 클라이언트
