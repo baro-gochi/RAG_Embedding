@@ -1,8 +1,8 @@
 """
-ChromaDB Dummie 임베딩 테스트 스크립트
-- JSON_dummie_embedder.py로 임베딩된 데이터 검증
-- 상담 특화 메타데이터 기반 검색 및 필터링
-- 질문 입력 시 RAG 기반 답변 생성
+KT 상담사 지원 AI 어시스턴트
+- 상담사가 고객 상담 시 필요한 정보를 실시간으로 제공
+- RAG 기반으로 관련 상품/서비스 정보 검색
+- 상담 키워드, 가격 정보, 할인 조건 등을 상담사에게 제공
 """
 
 import os
@@ -131,7 +131,7 @@ def search_relevant_docs(
 
 
 def generate_answer(query: str, context_docs: list):
-    """검색된 문서를 기반으로 답변 생성 (상담 메타데이터 활용)"""
+    """검색된 문서를 기반으로 상담사 지원 정보 생성"""
 
     # 컨텍스트 구성 (상담 메타데이터 포함)
     context_parts = []
@@ -162,32 +162,48 @@ def generate_answer(query: str, context_docs: list):
 
     context = "\n".join(context_parts)
 
-    # GPT로 답변 생성
+    # GPT로 상담사 지원 정보 생성
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
-                "content": """당신은 KT 고객센터 상담원입니다.
-제공된 참고문서를 기반으로 고객의 질문에 정확하고 친절하게 답변하세요.
+                "content": """당신은 KT 고객센터 상담사를 지원하는 AI 어시스턴트입니다.
+상담사가 고객과 상담할 때 필요한 정보를 정리하여 제공하세요.
+
+역할:
+- 고객에게 직접 답변하는 것이 아니라, 상담사가 고객에게 안내할 때 참고할 정보를 제공합니다.
+- 상담사가 빠르게 핵심 정보를 파악할 수 있도록 구조화된 형태로 제공하세요.
+- 고객의 문의 유형을 파악하고, 상담을 어떻게 진행해야 하는지 가이드를 제공하세요.
+
+제공 형식:
+1. [문의 유형 분석] - 고객 문의의 핵심 의도 파악 (예: 요금제 변경, 해지 방어, 할인 문의 등)
+2. [상담 진행 가이드] - 이 상담을 어떻게 진행해야 하는지 단계별 안내
+   - 먼저 확인할 사항 (고객 정보, 현재 사용 중인 요금제/서비스 등)
+   - 추천 상담 흐름 (어떤 순서로 안내할지)
+   - 예상되는 추가 질문과 대응 방안
+3. [핵심 정보] - 고객 문의에 대한 핵심 답변 포인트 (2-3줄)
+4. [상세 내용] - 상담사가 참고할 상세 정보
+5. [요금/할인 정보] - 관련 요금제, 할인 조건 등 (해당 시)
+6. [주의사항] - 상담 시 주의할 점이나 추가 확인 필요사항
+7. [추천 멘트] - 고객에게 안내할 때 사용할 수 있는 예시 멘트 (상황별 2-3개)
 
 규칙:
-1. 참고문서에 있는 정보만 사용하여 답변하세요.
-2. 참고문서에 없는 내용은 "해당 정보는 확인되지 않습니다"라고 답변하세요.
-3. 요금, 할인율 등 숫자 정보는 정확하게 전달하세요.
-4. 답변은 간결하고 명확하게 작성하세요.
-5. 필요시 관련 추가 정보도 안내해주세요.
-6. 문서에 포함된 메타데이터(가격정보, 조건 등)를 적극 활용하세요."""
+- 참고문서에 있는 정보만 사용하세요.
+- 숫자 정보(요금, 할인율 등)는 정확하게 제공하세요.
+- 정보가 없는 항목은 "확인 필요"로 표시하세요.
+- 상담사가 빠르게 읽을 수 있도록 간결하게 작성하세요.
+- 고객 유형(신규/기존, 약정 상태 등)에 따라 다른 접근법을 제안하세요."""
             },
             {
                 "role": "user",
                 "content": f"""[참고문서]
 {context}
 
-[고객 질문]
+[고객 문의 내용]
 {query}
 
-위 참고문서를 바탕으로 고객 질문에 답변해주세요."""
+위 참고문서를 바탕으로 상담사가 고객 응대에 활용할 정보를 정리해주세요."""
             }
         ],
         temperature=0.3,
@@ -262,17 +278,19 @@ def show_document_types():
 
 
 def chat_mode():
-    """대화형 Q&A 모드"""
+    """상담사 지원 모드"""
     print("\n" + "="*60)
-    print("  KT 고객센터 RAG 테스트 (Dummie Embedding)")
+    print("  KT 상담사 지원 AI 어시스턴트")
+    print("  - 고객 문의 내용을 입력하면 상담에 필요한 정보를 제공합니다")
     print("="*60)
 
     show_collection_info()
 
     print("\n[사용법]")
-    print("  - 질문을 입력하면 RAG 기반으로 답변합니다.")
+    print("  - 고객의 문의 내용을 입력하세요.")
+    print("  - AI가 상담에 필요한 정보를 정리하여 제공합니다.")
     print("  - 'quit' 또는 'exit' 입력 시 종료")
-    print("  - 'info' 입력 시 컬렉션 정보 표시")
+    print("  - 'info' 입력 시 DB 정보 표시")
     print("  - 'types' 입력 시 문서 유형별 통계 표시")
     print("  - 'docs' 입력 시 마지막 검색 문서 상세 표시")
     print("  - 'meta' 입력 시 마지막 검색 문서 메타데이터 표시")
@@ -286,7 +304,7 @@ def chat_mode():
 
     while True:
         print()
-        query = input("[질문] > ").strip()
+        query = input("[고객 문의] > ").strip()
 
         if not query:
             continue
@@ -385,22 +403,22 @@ def chat_mode():
             meta_hint = f" [{doc['document_type']}]" if doc['document_type'] else ""
             print(f"  {i}. [{doc['similarity']:.2f}]{meta_hint} {doc['title'][:40]}...")
 
-        # 답변 생성
-        print("\n[답변 생성 중...]")
+        # 상담 지원 정보 생성
+        print("\n[상담 지원 정보 생성 중...]")
         try:
             answer = generate_answer(actual_query, docs)
             print("\n" + "-"*60)
-            print("[답변]")
+            print("[상담사 참고 정보]")
             print("-"*60)
             print(answer)
             print("-"*60)
         except Exception as e:
-            print(f"[ERROR] 답변 생성 실패: {e}")
+            print(f"[ERROR] 정보 생성 실패: {e}")
 
 
 def single_query(query: str, filter_intent: str = None, filter_doctype: str = None):
-    """단일 질문 처리"""
-    print(f"\n[질문] {query}")
+    """단일 고객 문의 처리"""
+    print(f"\n[고객 문의] {query}")
     if filter_intent:
         print(f"[필터 - 의도] {filter_intent}")
     if filter_doctype:
@@ -425,16 +443,16 @@ def single_query(query: str, filter_intent: str = None, filter_doctype: str = No
         intent_hint = f" ({doc['customer_intents'][:30]})" if doc['customer_intents'] else ""
         print(f"  {i}. [{doc['similarity']:.2f}]{meta_hint}{intent_hint} {doc['title'][:40]}...")
 
-    print("\n[답변 생성 중...]")
+    print("\n[상담 지원 정보 생성 중...]")
     try:
         answer = generate_answer(query, docs)
         print("\n" + "-"*60)
-        print("[답변]")
+        print("[상담사 참고 정보]")
         print("-"*60)
         print(answer)
         print("-"*60)
     except Exception as e:
-        print(f"[ERROR] 답변 생성 실패: {e}")
+        print(f"[ERROR] 정보 생성 실패: {e}")
 
 
 if __name__ == "__main__":
@@ -467,7 +485,7 @@ if __name__ == "__main__":
         if query:
             single_query(query, filter_intent, filter_doctype)
         else:
-            print("사용법: python test_dummie_embedding.py [--intent 의도] [--doctype 문서유형] \"질문\"")
+            print("사용법: python test_dummie_embedding.py [--intent 의도] [--doctype 문서유형] \"고객 문의 내용\"")
     else:
         # 대화형 모드
         chat_mode()
