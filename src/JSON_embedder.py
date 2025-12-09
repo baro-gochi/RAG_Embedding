@@ -22,10 +22,10 @@ from bs4 import BeautifulSoup
 
 # 환경설정
 load_dotenv()
-JSON_DIRECTORY = os.getenv("DIR_SIMPLE")
+JSON_DIRECTORY = os.getenv("DIR_TGT")  # json_with_tgt 디렉터리
 OPENAI_API_KEY = os.getenv("API_KEY")
 CLASSIFICATION_CATEGORIES = os.getenv("CATEGORIES")
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH_SIMPLE")
+CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH_TGT")  # 타겟 고객 DB
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 
 # 청킹 설정
@@ -217,6 +217,30 @@ def parse_html_table(html_content: str) -> str:
 
 def detect_json_type(item: Dict) -> str:
     """JSON 구조 유형 감지"""
+    # 타겟 고객 정보가 있는 KT 요금제 (json_with_tgt)
+    if 'target_customer' in item:
+        # 결합할인 (bundles 필드가 있음)
+        if 'bundles' in item:
+            return 'bundle_discount_with_target'
+        # 모바일/인터넷/TV 요금제 (sections 필드가 있음)
+        elif 'sections' in item:
+            return 'plan_with_target'
+        # 멤버십 (membership_target_info 필드가 있음)
+        elif 'membership_target_info' in item or 'section' in item:
+            return 'membership_with_target'
+
+    # 결합할인에 타겟 정보가 bundles 내부에 있는 경우 체크
+    if 'bundles' in item:
+        bundles = item.get('bundles', [])
+        if bundles and isinstance(bundles, list) and len(bundles) > 0:
+            # 첫 번째 bundle에 target_customer가 있으면 with_target 타입
+            if 'target_customer' in bundles[0] or 'bundle_features' in bundles[0]:
+                return 'bundle_discount_with_target'
+
+    # 멤버십에 타겟 정보가 있는 경우 체크
+    if 'membership_target_info' in item or 'partnership_target_info' in item:
+        return 'membership_with_target'
+
     # 모바일 요금제 (나무위키 크롤링)
     if 'category' in item and 'sub_categories' in item:
         return 'mobile_plans'
@@ -245,7 +269,15 @@ def json_to_markdown(item: Dict, item_index: int = 0) -> str:
     """
     json_type = detect_json_type(item)
 
-    if json_type == 'mobile_plans':
+    # 타겟 고객 정보가 포함된 새로운 형식들
+    if json_type == 'plan_with_target':
+        return plan_with_target_to_markdown(item)
+    elif json_type == 'bundle_discount_with_target':
+        return bundle_discount_with_target_to_markdown(item)
+    elif json_type == 'membership_with_target':
+        return membership_with_target_to_markdown(item)
+    # 기존 형식들
+    elif json_type == 'mobile_plans':
         return mobile_plans_to_markdown(item)
     elif json_type == 'membership':
         return membership_to_markdown(item)
@@ -255,6 +287,475 @@ def json_to_markdown(item: Dict, item_index: int = 0) -> str:
         return bundle_discount_to_markdown(item)
     else:
         return generic_json_to_markdown(item, item_index)
+
+
+# ========== 타겟 고객 정보 변환 함수들 ==========
+def target_customer_to_markdown(target_customer: Dict) -> str:
+    """target_customer 필드를 마크다운으로 변환"""
+    if not target_customer:
+        return ""
+
+    md_parts = ["\n## 타겟 고객 정보\n"]
+
+    # 주요 타겟 세그먼트
+    primary_segment = target_customer.get('primary_segment', [])
+    if primary_segment:
+        if isinstance(primary_segment, list):
+            md_parts.append(f"- **주요 타겟 세그먼트**: {', '.join(primary_segment)}\n")
+        else:
+            md_parts.append(f"- **주요 타겟 세그먼트**: {primary_segment}\n")
+
+    # 연령대
+    age_group = target_customer.get('age_group', [])
+    if age_group:
+        if isinstance(age_group, list):
+            md_parts.append(f"- **연령대**: {', '.join(age_group)}\n")
+        else:
+            md_parts.append(f"- **연령대**: {age_group}\n")
+
+    # 라이프스타일
+    lifestyle = target_customer.get('lifestyle', [])
+    if lifestyle:
+        if isinstance(lifestyle, list):
+            md_parts.append(f"- **라이프스타일**: {', '.join(lifestyle)}\n")
+        else:
+            md_parts.append(f"- **라이프스타일**: {lifestyle}\n")
+
+    # 가구 유형
+    household_type = target_customer.get('household_type', '')
+    if household_type:
+        md_parts.append(f"- **가구 유형**: {household_type}\n")
+
+    # 사용 패턴
+    usage_pattern = target_customer.get('usage_pattern', '')
+    if usage_pattern:
+        md_parts.append(f"- **사용 패턴**: {usage_pattern}\n")
+
+    # 콘텐츠 선호
+    content_preference = target_customer.get('content_preference', '')
+    if content_preference:
+        md_parts.append(f"- **콘텐츠 선호**: {content_preference}\n")
+
+    # 가격 민감도
+    price_sensitivity = target_customer.get('price_sensitivity', '')
+    if price_sensitivity:
+        md_parts.append(f"- **가격 민감도**: {price_sensitivity}\n")
+
+    return "".join(md_parts)
+
+
+def plan_features_to_markdown(plan_features: Dict) -> str:
+    """plan_features 필드를 마크다운으로 변환"""
+    if not plan_features:
+        return ""
+
+    md_parts = ["\n## 요금제 특징\n"]
+
+    # 네트워크 유형
+    network_type = plan_features.get('network_type', '')
+    if network_type:
+        md_parts.append(f"- **네트워크**: {network_type}\n")
+
+    # 데이터 제공량
+    data_amount = plan_features.get('data_amount', '')
+    if data_amount:
+        md_parts.append(f"- **데이터**: {data_amount}\n")
+
+    # 속도 범위
+    speed_range = plan_features.get('speed_range', '')
+    if speed_range:
+        md_parts.append(f"- **속도 범위**: {speed_range}\n")
+
+    # 채널 수
+    channel_count = plan_features.get('channel_count', '')
+    if channel_count:
+        md_parts.append(f"- **채널 수**: {channel_count}\n")
+
+    # 월 요금 범위
+    monthly_price_range = plan_features.get('monthly_price_range', '')
+    if monthly_price_range:
+        md_parts.append(f"- **월 요금**: {monthly_price_range}\n")
+
+    # OTT 포함 여부
+    ott_included = plan_features.get('ott_included', '')
+    if ott_included:
+        md_parts.append(f"- **OTT 포함**: {ott_included}\n")
+
+    # 핵심 혜택
+    key_benefits = plan_features.get('key_benefits', [])
+    if key_benefits:
+        if isinstance(key_benefits, list):
+            md_parts.append(f"- **핵심 혜택**: {', '.join(key_benefits)}\n")
+        else:
+            md_parts.append(f"- **핵심 혜택**: {key_benefits}\n")
+
+    # 차별점
+    differentiator = plan_features.get('differentiator', '')
+    if differentiator:
+        md_parts.append(f"- **차별점**: {differentiator}\n")
+
+    return "".join(md_parts)
+
+
+def bundle_features_to_markdown(bundle_features: Dict) -> str:
+    """bundle_features 필드를 마크다운으로 변환"""
+    if not bundle_features:
+        return ""
+
+    md_parts = ["\n## 결합 상품 특징\n"]
+
+    # 할인 유형
+    discount_type = bundle_features.get('discount_type', '')
+    if discount_type:
+        md_parts.append(f"- **할인 유형**: {discount_type}\n")
+
+    # 최대 회선
+    max_lines = bundle_features.get('max_lines', '')
+    if max_lines:
+        md_parts.append(f"- **최대 회선**: {max_lines}\n")
+
+    # 가입 조건
+    requirements = bundle_features.get('requirements', '')
+    if requirements:
+        md_parts.append(f"- **가입 조건**: {requirements}\n")
+
+    # 차별점
+    differentiator = bundle_features.get('differentiator', '')
+    if differentiator:
+        md_parts.append(f"- **차별점**: {differentiator}\n")
+
+    return "".join(md_parts)
+
+
+def plan_with_target_to_markdown(item: Dict) -> str:
+    """타겟 고객 정보가 포함된 요금제(모바일/인터넷/TV) JSON을 마크다운으로 변환"""
+    markdown_parts = []
+
+    # 요금제 이름
+    name = item.get('name', '')
+    if name:
+        markdown_parts.append(f"# {name}\n")
+
+    # 상품 유형
+    product_type = item.get('product_type', '')
+    filter_name = item.get('filter_name', '')
+    if product_type or filter_name:
+        markdown_parts.append(f"*{product_type} - {filter_name}*\n")
+
+    # 추천 시나리오 (RAG 검색에 중요)
+    recommended_scenario = item.get('recommended_scenario', '')
+    if recommended_scenario:
+        markdown_parts.append(f"\n**추천 시나리오**: {recommended_scenario}\n")
+
+    # 타겟 고객 정보 (RAG 검색에 중요)
+    target_customer = item.get('target_customer', {})
+    if target_customer:
+        markdown_parts.append(target_customer_to_markdown(target_customer))
+
+    # 요금제 특징
+    plan_features = item.get('plan_features', {})
+    if plan_features:
+        markdown_parts.append(plan_features_to_markdown(plan_features))
+
+    # sections 처리 (요금 안내 등)
+    sections = item.get('sections', {})
+    if sections:
+        for section_name, section_content in sections.items():
+            markdown_parts.append(f"\n## {section_name}\n")
+
+            if isinstance(section_content, dict):
+                # tables 처리
+                tables = section_content.get('tables', [])
+                for table in tables:
+                    markdown_parts.append(table_to_markdown(table))
+
+                # lists 처리
+                lists = section_content.get('lists', [])
+                if lists:
+                    markdown_parts.append("\n")
+                    for li in lists:
+                        if li:
+                            markdown_parts.append(f"- {li}\n")
+
+                # notes 처리
+                notes = section_content.get('notes', [])
+                if notes:
+                    markdown_parts.append("\n*참고:*\n")
+                    for note in notes:
+                        if note:
+                            markdown_parts.append(f"- {note}\n")
+
+    return "\n".join(markdown_parts)
+
+
+def bundle_discount_with_target_to_markdown(item: Dict) -> str:
+    """타겟 고객 정보가 포함된 결합할인 JSON을 마크다운으로 변환"""
+    markdown_parts = []
+
+    provider = item.get('provider', '')
+    category = item.get('category', '')
+
+    markdown_parts.append(f"# {provider} {category}\n")
+
+    sources = item.get('sources', [])
+    if sources:
+        markdown_parts.append(f"*출처: {', '.join(sources)}*\n")
+
+    last_updated = item.get('last_updated', '')
+    if last_updated:
+        markdown_parts.append(f"*최종 업데이트: {last_updated}*\n")
+
+    # 각 번들 처리
+    bundles = item.get('bundles', [])
+    for bundle in bundles:
+        name = bundle.get('name', '')
+        if name:
+            markdown_parts.append(f"\n## {name}\n")
+
+        # 추천 시나리오 (RAG 검색에 중요)
+        recommended_scenario = bundle.get('recommended_scenario', '')
+        if recommended_scenario:
+            markdown_parts.append(f"\n**추천 시나리오**: {recommended_scenario}\n")
+
+        recommended_for = bundle.get('recommended_for', '')
+        if recommended_for:
+            markdown_parts.append(f"**추천 대상**: {recommended_for}\n")
+
+        # 타겟 고객 정보
+        target_customer = bundle.get('target_customer', {})
+        if target_customer:
+            markdown_parts.append(target_customer_to_markdown(target_customer))
+
+        # 결합 상품 특징
+        bundle_features = bundle.get('bundle_features', {})
+        if bundle_features:
+            markdown_parts.append(bundle_features_to_markdown(bundle_features))
+
+        # 조건
+        conditions = bundle.get('conditions', {})
+        if conditions:
+            markdown_parts.append("\n### 가입 조건\n")
+            for key, value in conditions.items():
+                if value is not None:
+                    key_kr = {
+                        'phone_plan_min_price': '최소 휴대폰 요금제',
+                        'phone_lines_min': '최소 휴대폰 회선 수',
+                        'phone_lines_max': '최대 휴대폰 회선 수',
+                        'phone_lines': '휴대폰 회선 수',
+                        'internet_required': '인터넷 필수 여부',
+                        'internet_speed_min': '최소 인터넷 속도',
+                        'discount_basis': '할인 기준',
+                        'contract_years': '약정 기간(년)',
+                        'phone_plan_note': '요금제 참고',
+                        'type': '유형',
+                        'note': '참고',
+                        'eligibility': '자격 조건',
+                        'documents_required': '서류 필요',
+                        'internet_lines_max': '최대 인터넷 회선'
+                    }.get(key, key)
+                    markdown_parts.append(f"- **{key_kr}**: {value}\n")
+
+        # 할인 정보
+        discounts = bundle.get('discounts', {})
+        if discounts:
+            markdown_parts.append("\n### 할인 혜택\n")
+            for discount_type, discount_info in discounts.items():
+                discount_type_kr = {
+                    'internet': '인터넷',
+                    'phone': '휴대폰',
+                    'phone_self': '본인 휴대폰',
+                    'phone_spouse': '배우자 휴대폰'
+                }.get(discount_type, discount_type)
+
+                if isinstance(discount_info, dict):
+                    amount = discount_info.get('amount') or discount_info.get('amount_max')
+                    rate = discount_info.get('rate')
+                    unit = discount_info.get('unit', '')
+                    note = discount_info.get('note', '')
+                    dtype = discount_info.get('type', '')
+
+                    if dtype:
+                        markdown_parts.append(f"- **{discount_type_kr}**: {dtype}\n")
+                    elif amount:
+                        markdown_parts.append(f"- **{discount_type_kr}**: {amount}{unit} 할인\n")
+                    elif rate:
+                        markdown_parts.append(f"- **{discount_type_kr}**: {rate}{unit} 할인\n")
+
+                    if note:
+                        markdown_parts.append(f"  - {note}\n")
+
+        # 주의사항
+        caution = bundle.get('caution', '')
+        if caution:
+            markdown_parts.append(f"\n**주의**: {caution}\n")
+
+    # MVNO 번들 처리
+    mvno_bundles = item.get('mvno_bundles', {})
+    if mvno_bundles:
+        markdown_parts.append("\n## 알뜰폰 결합\n")
+        desc = mvno_bundles.get('description', '')
+        if desc:
+            markdown_parts.append(f"{desc}\n")
+
+        note = mvno_bundles.get('note', '')
+        if note:
+            markdown_parts.append(f"*{note}*\n")
+
+        # 타겟 고객
+        target_customer = mvno_bundles.get('target_customer', {})
+        if target_customer:
+            markdown_parts.append(target_customer_to_markdown(target_customer))
+
+        recommended_scenario = mvno_bundles.get('recommended_scenario', '')
+        if recommended_scenario:
+            markdown_parts.append(f"\n**추천 시나리오**: {recommended_scenario}\n")
+
+        carriers = mvno_bundles.get('available_carriers', [])
+        if carriers:
+            markdown_parts.append("\n### 제휴 알뜰폰 사업자\n")
+            markdown_parts.append("| 사업자 | 할인 기간 | 월 할인액 |\n")
+            markdown_parts.append("| --- | --- | --- |\n")
+            for carrier in carriers:
+                name = carrier.get('name', '')
+                period = carrier.get('discount_period_months', '')
+                discount = carrier.get('monthly_discount', '')
+                markdown_parts.append(f"| {name} | {period}개월 | {discount:,}원 |\n")
+
+    # 스카이라이프 번들
+    skylife_bundles = item.get('skylife_bundles', {})
+    if skylife_bundles:
+        markdown_parts.append("\n## 스카이라이프 결합\n")
+        desc = skylife_bundles.get('description', '')
+        if desc:
+            markdown_parts.append(f"{desc}\n")
+
+        note = skylife_bundles.get('note', '')
+        if note:
+            markdown_parts.append(f"*{note}*\n")
+
+        target_customer = skylife_bundles.get('target_customer', {})
+        if target_customer:
+            markdown_parts.append(target_customer_to_markdown(target_customer))
+
+        recommended_scenario = skylife_bundles.get('recommended_scenario', '')
+        if recommended_scenario:
+            markdown_parts.append(f"\n**추천 시나리오**: {recommended_scenario}\n")
+
+    # 중요 참고사항
+    important_notes = item.get('important_notes', [])
+    if important_notes:
+        markdown_parts.append("\n## 중요 참고사항\n")
+        for note in important_notes:
+            title = note.get('title', '')
+            desc = note.get('description', '')
+            if title:
+                markdown_parts.append(f"\n### {title}\n")
+            if desc:
+                markdown_parts.append(f"{desc}\n")
+
+    return "\n".join(markdown_parts)
+
+
+def membership_with_target_to_markdown(item: Dict) -> str:
+    """타겟 고객 정보가 포함된 멤버십 JSON을 마크다운으로 변환"""
+    markdown_parts = []
+
+    section = item.get('section', '')
+    section_number = item.get('section_number', '')
+
+    # 섹션 제목
+    if section:
+        markdown_parts.append(f"# {section}\n")
+    if section_number:
+        markdown_parts.append(f"*섹션 번호: {section_number}*\n")
+
+    # 멤버십 타겟 정보
+    membership_target_info = item.get('membership_target_info', {})
+    if membership_target_info:
+        grade_targets = membership_target_info.get('grade_targets', {})
+        if grade_targets:
+            markdown_parts.append("\n## 등급별 타겟 고객\n")
+            for grade, info in grade_targets.items():
+                markdown_parts.append(f"\n### {grade}\n")
+                target = info.get('target_customer', '')
+                profile = info.get('typical_profile', '')
+                benefits = info.get('key_benefits', '')
+                if target:
+                    markdown_parts.append(f"- **타겟 고객**: {target}\n")
+                if profile:
+                    markdown_parts.append(f"- **대표 프로필**: {profile}\n")
+                if benefits:
+                    markdown_parts.append(f"- **핵심 혜택**: {benefits}\n")
+
+    # 제휴 타겟 정보
+    partnership_target_info = item.get('partnership_target_info', {})
+    if partnership_target_info:
+        markdown_parts.append("\n## 제휴 혜택별 타겟 고객\n")
+        for category, info in partnership_target_info.items():
+            markdown_parts.append(f"\n### {category}\n")
+            target = info.get('target_customer', '')
+            grade = info.get('recommended_grade', '')
+            value = info.get('best_value', '')
+            if target:
+                markdown_parts.append(f"- **타겟 고객**: {target}\n")
+            if grade:
+                markdown_parts.append(f"- **추천 등급**: {grade}\n")
+            if value:
+                markdown_parts.append(f"- **최고 혜택**: {value}\n")
+
+    # 콘텐츠 처리
+    content = item.get('content', {})
+    if content:
+        texts = content.get('text', [])
+        for text in texts:
+            if text:
+                markdown_parts.append(f"\n{text}\n")
+
+        list_items = content.get('list_items', [])
+        if list_items:
+            markdown_parts.append("\n")
+            for li in list_items:
+                if li:
+                    markdown_parts.append(f"- {li}\n")
+
+        tables = content.get('tables', [])
+        for table in tables:
+            table_name = table.get('table_name', '')
+            if table_name:
+                markdown_parts.append(f"\n**{table_name}**\n")
+
+            table_html = table.get('table_html', '')
+            if table_html:
+                parsed_table = parse_html_table(table_html)
+                if parsed_table:
+                    markdown_parts.append(f"\n{parsed_table}\n")
+
+    # 하위 섹션 처리
+    sub_sections = item.get('sub_sections', [])
+    for sub_sec in sub_sections:
+        sub_name = sub_sec.get('name', '')
+        sub_number = sub_sec.get('section_number', '')
+
+        if sub_name:
+            markdown_parts.append(f"\n## {sub_name}\n")
+        if sub_number:
+            markdown_parts.append(f"*섹션 번호: {sub_number}*\n")
+
+        sub_content = sub_sec.get('content', {})
+        if sub_content:
+            texts = sub_content.get('text', [])
+            for text in texts:
+                if text:
+                    markdown_parts.append(f"\n{text}\n")
+
+            list_items = sub_content.get('list_items', [])
+            if list_items:
+                markdown_parts.append("\n")
+                for li in list_items:
+                    if li:
+                        markdown_parts.append(f"- {li}\n")
+
+    return "\n".join(markdown_parts)
 
 
 def mobile_plans_to_markdown(item: Dict) -> str:
